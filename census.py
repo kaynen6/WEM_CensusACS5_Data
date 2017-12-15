@@ -42,7 +42,7 @@ def main():
         ## some variables ##
         clipped = "clipped"
         tracts = "tracts"
-        update_file = "WEMAPP.WEM$OWN.test_census"
+        ##update_file = "WEMAPP.WEM$OWN.test_census"
         tracts_clip = "tracts_clip"
         final_tracts = "final"
         csv_file = os.path.join(tempPath,'languages.csv')
@@ -60,8 +60,11 @@ def main():
             json.dump(clip, f)
 
         arcpy.AddMessage("Processing Data...")
-        fields = ["B16001_001E", "B16001_005E", "B16001_020E", "B16001_026E", "B16001_068E", "B16001_080E"]
-        aliases = ["Total - 5+ yrs of age", "Spanish or Spanish Creole: Speak English less than 'very well'", "German: Speak English less than 'very well'", "Other West Germanic languages: Speak English less than 'very well'" , "Chinese: Speak English less than 'very well'" , "Hmong: Speak English less than 'very well'"]
+        fields = fieldsList
+        if fields == ['B16001_001','EB16001_005E','B16001_020E','B16001_026E','B16001_068E','B16001_080E']:
+            aliases = ["Total - 5+ yrs of age", "Spanish or Spanish Creole: Speak English less than 'very well'", "German: Speak English less than 'very well'", "Other West Germanic languages: Speak English less than 'very well'" , "Chinese: Speak English less than 'very well'" , "Hmong: Speak English less than 'very well'"]
+        else:
+            aliases = []
         # Geometry json to feature class
         #arcpy.JSONToFeatures_conversion(geomJSON, tracts)
         if arcpy.Exists(clipped):
@@ -74,7 +77,7 @@ def main():
         # Add Field for string verison of GEOID
         arcpy.AddField_management("csv_table", "GID_TEXT", "TEXT")
         # Calculate the new Field (GEOID)
-        arcpy.CalculateField_management("csv_table", "GID_TEXT", "[GEOID]")
+        arcpy.CalculateField_management("csv_table", "GID_TEXT", "[GEO_ID]")
         # Process: Add Join - join the table to the layer
         arcpy.JoinField_management(geom, "GEOID", "csv_table", "GID_TEXT")
         # Copy features to new file - saves join.
@@ -107,9 +110,10 @@ def main():
         arcpy.Delete_management(tracts)
         arcpy.Delete_management(clipped)
         arcpy.Delete_management(clipJSON)
+
         #set up cursors to update dataset feature class
         sfc = final_tracts #search cursor feature class
-        ufc = str(os.path.join(dbpath, update_file)) #update cursor feature class
+        ufc = str(os.path.join(dbpath))#, update_file)) #update cursor feature class
         with arcpy.da.SearchCursor(sfc, '*') as sCur:
             with arcpy.da.UpdateCursor(ufc, '*') as uCur:
                 for sRow in sCur:
@@ -129,6 +133,7 @@ def main():
     socket.setdefaulttimeout(timeout)
     
     # path of workspace dataset
+    global dbpath
     dbpath = (arcpy.GetParameterAsText(0))
     geom = (arcpy.GetParameterAsText(1))
     
@@ -136,23 +141,46 @@ def main():
     global year
     year = date.today().year
     global acsYear
-    acsYear = year
+    acsYear = arcpy.GetParameterAsText(4)
+    
     ## census api key
-    key = "**********"
+    key = (arcpy.GetParameterAsText(2)) 
+    ##census fields from user input
+    fields = arcpy.GetParameterAsText(3)  ##B16001_001E,B16001_005E,B16001_020E,B16001_026E,B16001_068E,B16001_080E
+    global fieldsList
+    fieldsList = fields.split(';')
+    fieldsStr = string.join(fieldsList,',')
+    arcpy.AddMessage(fieldsStr)
+    arcpy.AddMessage(fieldsList)
 
+    fcFieldList = arcpy.ListFields(dbpath)
+    deleteList = []
+    for f in fcFieldList:
+        if "_" in f.name[(len(f.name)-2):len(f.name)]:
+            deleteList.append(f.name)
+    try:
+        arcpy.DeleteField_management(dbpath,deleteList)
+        arcpy.AddMessage("Deleted Fields: ",deleteList)
+    except Exception as e:
+        arcpy.AddMessage(e)
     ### call functions ###
     # get data from ACS REST ENDs
-    while acsYear >= 2015:
-        # url for 2015 ACS 5yr estimate for:
-        # Language spoken at home by ability to speak english less than well, specific languages
-        url = "https://api.census.gov/data/" + str(acsYear) + "/acs5?get=NAME,GEOID,B16001_001E,B16001_005E,B16001_020E,B16001_026E,B16001_068E,B16001_080E&for=tract:*&in=state:55&key=" + key
-        #go get it
-        data = fetchData(url)
-        #try year before this one if no data
-        if data == None:
-            acsYear -= 1
-        else:
-            break
+    url = "https://api.census.gov/data/" + str(acsYear) + "/acs/acs5?get=NAME,GEO_ID," + fields + "&for=tract:*&in=state:55&key=" + key
+    arcpy.AddMessage(url)
+    #go get it
+    data = fetchData(url)
+##    while acsYear >= 2015:
+##        # url for 2015 ACS 5yr estimate for:
+##        # Language spoken at home by ability to speak english less than well, specific languages
+##        url = "https://api.census.gov/data/" + str(acsYear) + "/acs/acs5?get=NAME,GEO_ID," + fields + "&for=tract:*&in=state:55&key=" + key
+##        arcpy.AddMessage(url)
+##        #go get it
+##        data = fetchData(url)
+##        #try year before this one if no data
+##        if data == None:
+##            acsYear -= 1
+##        else:
+##            break
 
     # State boundary url from DMA public end point
     clipUrl = "https://widmamaps.us/dma/rest/services/WEM/WI_State_Boundary/MapServer/0/query?where=STATE_FIPS+%3D+55&geometryType=esriGeometryEnvelope&spatialRel=esriSpatialRelIntersects&returnGeometry=true&f=pjson"
