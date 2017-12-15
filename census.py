@@ -42,7 +42,6 @@ def main():
         ## some variables ##
         clipped = "clipped"
         tracts = "tracts"
-        ##update_file = "WEMAPP.WEM$OWN.test_census"
         tracts_clip = "tracts_clip"
         final_tracts = "final"
         csv_file = os.path.join(tempPath,'languages.csv')
@@ -110,18 +109,26 @@ def main():
         arcpy.Delete_management(tracts)
         arcpy.Delete_management(clipped)
         arcpy.Delete_management(clipJSON)
-
+        ##clean up fields in case of bad data write - start a list of field names
+##        fcFieldList = arcpy.ListFields(dbpath)
+##        delFcFields = []
+##        for f in fcFieldList:
+##            if "_" in f.name[(len(f.name)-2):len(f.name)]:
+##                delFcFields.append(f.name)
         #set up cursors to update dataset feature class
         sfc = final_tracts #search cursor feature class
-        ufc = str(os.path.join(dbpath))#, update_file)) #update cursor feature class
+        ufc = dbpath
+##        with arcpy.da.UpdateCursor(ufc, delFcFields) as uCur:
+##            for uRow in uCur:
+##                uCur.deleteRow()
         with arcpy.da.SearchCursor(sfc, '*') as sCur:
             with arcpy.da.UpdateCursor(ufc, '*') as uCur:
                 for sRow in sCur:
                     for uRow in uCur:
                         if sRow[1] == uRow[1]:
-                            uRow = [sRow]
-                            uCur.updateRow(uRow)
-                            break
+                        uRow = [sRow]
+                        uCur.updateRow(uRow)
+                        break
         # Cleanup last temp file
         arcpy.Delete_management(final_tracts)
         
@@ -153,16 +160,7 @@ def main():
     arcpy.AddMessage(fieldsStr)
     arcpy.AddMessage(fieldsList)
 
-    fcFieldList = arcpy.ListFields(dbpath)
-    deleteList = []
-    for f in fcFieldList:
-        if "_" in f.name[(len(f.name)-2):len(f.name)]:
-            deleteList.append(f.name)
-    try:
-        arcpy.DeleteField_management(dbpath,deleteList)
-        arcpy.AddMessage("Deleted Fields: ",deleteList)
-    except Exception as e:
-        arcpy.AddMessage(e)
+    
     ### call functions ###
     # get data from ACS REST ENDs
     url = "https://api.census.gov/data/" + str(acsYear) + "/acs/acs5?get=NAME,GEO_ID," + fields + "&for=tract:*&in=state:55&key=" + key
