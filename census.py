@@ -30,9 +30,10 @@ def main():
                 #print json.dumps(data, indent =2)
                 return data
             else:
+                arcpy.AddMessage("Unsuccessful URL Data Request.")
                 return None
      
-    def joinData(data,geom,path,clip):
+    def joinData(data,geom,dbpath,clip):
         
         #create temp data scratch GDB
         tempData = arcpy.CreateScratchName(workspace=arcpy.env.scratchGDB)
@@ -44,11 +45,11 @@ def main():
         tracts = "tracts"
         tracts_clip = "tracts_clip"
         final_tracts = "final"
-        csv_file = os.path.join(tempPath,'languages.csv')
+        csv_file = os.path.join(tempPath,'census.csv')
         clipJSON = os.path.join(tempPath,'clip.json')
         
         #open and write data to file as csv with a header row
-        with open(os.path.join(csv_file), 'wb') as f:
+        with open(csv_file, 'wb') as f:
             writer = csv.writer(f)
             writer.writerow(data.pop(0)) #header row
             for item in data:
@@ -60,7 +61,7 @@ def main():
 
         arcpy.AddMessage("Processing Data...")
         fields = fieldsList
-        if fields == ['B16001_001','EB16001_005E','B16001_020E','B16001_026E','B16001_068E','B16001_080E']:
+        if fields == ['B16001_001E','B16001_005E','B16001_020E','B16001_026E','B16001_068E','B16001_080E']:
             aliases = ["Total - 5+ yrs of age", "Spanish or Spanish Creole: Speak English less than 'very well'", "German: Speak English less than 'very well'", "Other West Germanic languages: Speak English less than 'very well'" , "Chinese: Speak English less than 'very well'" , "Hmong: Speak English less than 'very well'"]
         else:
             aliases = []
@@ -91,7 +92,6 @@ def main():
             for i in range(0,len(fields)):
                 if f.name == fields[i]:
                     arcpy.AlterField_management("new_tracts",f.name, fields[i], aliases[i])
-                    break
         # Clip the census tracts to wi boundary
         if arcpy.Exists(tracts_clip):
             arcpy.Delete_management(tracts_clip)
@@ -101,6 +101,7 @@ def main():
             arcpy.Delete_management(final_tracts)
         arcpy.AddMessage("Writing File...")
         arcpy.CopyFeatures_management(tracts_clip, final_tracts)
+        
         # Cleanup temp files
         arcpy.Delete_management("new_tracts")
         arcpy.Delete_management(tracts_clip)
@@ -109,29 +110,26 @@ def main():
         arcpy.Delete_management(tracts)
         arcpy.Delete_management(clipped)
         arcpy.Delete_management(clipJSON)
+        
         ##clean up fields in case of bad data write - start a list of field names
-##        fcFieldList = arcpy.ListFields(dbpath)
-##        delFcFields = []
-##        for f in fcFieldList:
-##            if "_" in f.name[(len(f.name)-2):len(f.name)]:
-##                delFcFields.append(f.name)
+        fcFieldList = set(arcpy.ListFields(dbpath))
+        dataFieldList = set(arcpy.ListFields(final_tracts))
+        newFieldList = []
+        newFieldList.append(fcFieldList & dataFieldList)
         #set up cursors to update dataset feature class
         sfc = final_tracts #search cursor feature class
         ufc = dbpath
-##        with arcpy.da.UpdateCursor(ufc, delFcFields) as uCur:
-##            for uRow in uCur:
-##                uCur.deleteRow()
-        with arcpy.da.SearchCursor(sfc, '*') as sCur:
-            with arcpy.da.UpdateCursor(ufc, '*') as uCur:
+        with arcpy.da.SearchCursor(sfc, newFieldList) as sCur:
+            with arcpy.da.UpdateCursor(ufc, newFieldList) as uCur:
                 for sRow in sCur:
                     for uRow in uCur:
                         if sRow[1] == uRow[1]:
-                        uRow = [sRow]
-                        uCur.updateRow(uRow)
-                        break
+                            uRow = [sRow]
+                            uCur.updateRow(uRow)
+                            break
+
         # Cleanup last temp file
         arcpy.Delete_management(final_tracts)
-        
         arcpy.AddMessage("Census data updated.")
         
             
@@ -141,8 +139,8 @@ def main():
     
     # path of workspace dataset
     global dbpath
-    dbpath = (arcpy.GetParameterAsText(0))
-    geom = (arcpy.GetParameterAsText(1))
+    dbpath = arcpy.GetParameterAsText(0)
+    geom = arcpy.GetParameterAsText(1)
     
     # current year
     global year
@@ -151,7 +149,7 @@ def main():
     acsYear = arcpy.GetParameterAsText(4)
     
     ## census api key
-    key = (arcpy.GetParameterAsText(2)) 
+    key = arcpy.GetParameterAsText(2)
     ##census fields from user input
     fields = arcpy.GetParameterAsText(3)  ##B16001_001E,B16001_005E,B16001_020E,B16001_026E,B16001_068E,B16001_080E
     global fieldsList
@@ -163,7 +161,7 @@ def main():
     
     ### call functions ###
     # get data from ACS REST ENDs
-    url = "https://api.census.gov/data/" + str(acsYear) + "/acs/acs5?get=NAME,GEO_ID," + fields + "&for=tract:*&in=state:55&key=" + key
+    url = "https://api.census.gov/data/{0}/acs/acs5?get=NAME,GEO_ID,COUNTY,{1}&for=tract:*&in=state:55&key={2}".format(str(acsYear),fieldsStr,key)
     arcpy.AddMessage(url)
     #go get it
     data = fetchData(url)
@@ -181,7 +179,7 @@ def main():
 ##            break
 
     # State boundary url from DMA public end point
-    clipUrl = "https://widmamaps.us/dma/rest/services/WEM/WI_State_Boundary/MapServer/0/query?where=STATE_FIPS+%3D+55&geometryType=esriGeometryEnvelope&spatialRel=esriSpatialRelIntersects&returnGeometry=true&f=pjson"
+    clipUrl = "https://widmamaps.us/dma/rest/services/WEM/WI_State_Boundary/MapServer/0/query?where=STATE_FIPS+%3D+55&geometryType=esriGeometryEnvelope&spatialRel=esriSpatialRelIntersects&returnGeometry=true&f=json"
     #go get it
     clip = fetchData(clipUrl)
     
